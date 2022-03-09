@@ -1,10 +1,14 @@
-﻿using System;
+﻿using System.Collections;
+using System.Runtime.CompilerServices;
+using System;
+using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
 using Epsic.Authx.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -26,10 +30,17 @@ namespace Epsic.Authx.Controllers
 
         [HttpPost]
         [Route("auth/Create")]
+        [Authorize(Roles = "admin")]
         public async Task<IActionResult> Create([FromBody] CreateAccountRequest user)
         {
             var newUser = new IdentityUser {Email = user.Email, UserName = user.Email};
+
             var isCreated = await _userManager.CreateAsync(newUser, user.Password);
+
+            await _userManager.AddToRoleAsync(newUser, user.IsAdmin ? "admin" : "user");
+
+            await _userManager.AddClaimAsync(newUser, new Claim("IsMedecin", user.IsMedecin.ToString()));
+
             if (isCreated.Succeeded)
                 return Ok(newUser);
 
@@ -53,7 +64,10 @@ namespace Epsic.Authx.Controllers
 
                 if (isCorrect)
                 {
-                    var jwtToken = GenerateJwtToken(existingUser);
+                    var roles = await _userManager.GetRolesAsync(existingUser);
+                    var claims = await _userManager.GetClaimsAsync(existingUser);
+
+                    var jwtToken = GenerateJwtToken(existingUser, roles, claims);
 
                     return Ok(new AuthResponse
                     {
@@ -71,7 +85,7 @@ namespace Epsic.Authx.Controllers
             });
         }
 
-        private string GenerateJwtToken(IdentityUser user)
+        private string GenerateJwtToken(IdentityUser user, IList<string> roles, IList<Claim> claims)
         {
             var jwtTokenHandler = new JwtSecurityTokenHandler();
 
@@ -91,10 +105,17 @@ namespace Epsic.Authx.Controllers
                     new Claim(JwtRegisteredClaimNames.Sub, user.Email),
                     new Claim(JwtRegisteredClaimNames.Email, user.Email),
                 }),
+                Claims = new Dictionary<string, object>(),
                 Expires = DateTime.UtcNow.AddHours(6),
                 // ici, nous ajoutons l'information sur l'algorithme de cryptage qui sera utilisé pour décrypter notre token.
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha512Signature)
             };
+
+            foreach (var role in roles)
+                tokenDescriptor.Subject.AddClaim(new Claim(ClaimTypes.Role, role));
+
+            foreach (var claim in claims)
+                tokenDescriptor.Claims.TryAdd(claim.Type, claim.Value);
 
             var token = jwtTokenHandler.CreateToken(tokenDescriptor);
 

@@ -1,7 +1,8 @@
-using System.Collections.Generic;
 using System.Text;
+using Epsic.Authx.Authorization;
 using Epsic.Authx.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
@@ -29,7 +30,7 @@ namespace Epsic.Authx
             services.AddControllers();
             services.AddSwaggerGen(c =>
             {
-                c.SwaggerDoc("v1", new OpenApiInfo {Title = "Epsic.Authx", Version = "v1"});
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "Epsic.Authx", Version = "v1" });
                 // To Enable authorization using Swagger (JWT)
                 c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme()
                 {
@@ -87,6 +88,16 @@ namespace Epsic.Authx
                     ValidateLifetime = true
                 };
             });
+
+            services.AddAuthorization(options =>
+            {
+                options.AddPolicy("MedecinOnly", policy => policy.RequireClaim("IsMedecin", "True"));
+                options.AddPolicy("CovidTestPolicy", policy => policy.Requirements.Add(new SamePatientRequirement()));
+                options.AddPolicy("ChuvEmployee", policy => policy.Requirements.Add(new HospitalEmployeeRequirement("chuv.ch")));
+            });
+
+            services.AddSingleton<IAuthorizationHandler, SamePatientAuthorizationHandler>();
+            services.AddSingleton<IAuthorizationHandler, HospitalEmployeeAuthorizationHandler>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
